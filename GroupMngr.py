@@ -1,39 +1,30 @@
-from socket import *
-import pickle
+import threading
+import rpyc
+from rpyc.utils.server import ThreadedServer
 from constMP import *
 
-port = GROUPMNGR_TCP_PORT
 membership = []
+lock = threading.Lock()
+stop_event = threading.Event()
 
-def serverLoop():
-  serverSock = socket(AF_INET, SOCK_STREAM)
-  # Allow immediate reuse of the port after closing
-  serverSock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-  serverSock.bind(('0.0.0.0', port))
-  serverSock.listen(6)
-  while(1):
-    (conn, addr) = serverSock.accept()
-    msgPack = conn.recv(2048)
-    req = pickle.loads(msgPack)
-    if req["op"] == "register":
-      membership.append((req["ipaddr"],req["port"]))
-      print ('Registered peer: ', req)
-    elif req["op"] == "list":
-      list = []
-      for m in membership:
-        list.append(m[0])
-      print ('List of peers sent to server: ', list)
-      conn.send(pickle.dumps(list))
-    elif req["op"] == "unregister":
-      # to do
-      pass
-    elif req["op"] == "stop":
-      print("Stopping.")
-      serverSock.close()
-      break
-    else:
-      pass # fix (send back an answer in case of unknown op
+class GroupManagerService(rpyc.Service):
+    def exposed_register(self, ipaddr, port):
+        with lock:
+            membership.append((ipaddr, port))
+        print("Registered peer: ", (ipaddr, port))
 
-  conn.close()
+    def exposed_list(self):
+        with lock:
+            tupled_membership = tuple(pair[0] for pair in membership)
+        print("Peers sent to server: ", tupled_membership)
+        return tupled_membership
 
-serverLoop()
+    def exposed_stop(self):
+        print("Stopping server...")
+        stop_event.set()
+
+server = ThreadedServer(GroupManagerService, port=GROUPMNGR_TCP_PORT)
+t_server = threading.Thread(target=server.start, daemon=True)
+t_server.start()
+stop_event.wait()
+server.close()

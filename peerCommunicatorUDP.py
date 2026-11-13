@@ -5,6 +5,9 @@ import random
 import time
 import pickle
 from requests import get
+import rpyc
+import queue
+from rpyc.utils.server import ThreadedServer
 
 #handShakes = [] # not used; only if we need to check whose handshake is missing
 
@@ -22,13 +25,16 @@ recvSocket = socket(AF_INET, SOCK_DGRAM)
 recvSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 recvSocket.bind(('0.0.0.0', PEER_UDP_PORT))
 
-# TCP socket to receive start signal from the comparison server:
-serverSock = socket(AF_INET, SOCK_STREAM)
-# Allow immediate reuse of the port after closing
-serverSock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-serverSock.bind(('0.0.0.0', PEER_TCP_PORT))
-serverSock.listen(1)
+class PeerCommunicatorService(rpyc.Service):
+  start_queue = queue.Queue()
 
+  def exposed_start(self, peer_id, n_msgs):
+    self.start_queue.put((peer_id, n_msgs))
+    return 'Peer process ' + str(peer_id) + ' started'
+
+server = ThreadedServer(PeerCommunicatorService, port=PEER_TCP_PORT)
+t_server = threading.Thread(target=server.start, daemon=True)
+t_server.start() 
 
 def get_public_ip():
   ipAddr = get('https://api.ipify.org').content.decode('utf8')
@@ -37,29 +43,18 @@ def get_public_ip():
 
 # Function to register this peer with the group manager
 def registerWithGroupManager():
-  clientSock = socket(AF_INET, SOCK_STREAM)
   print ('Connecting to group manager: ', (GROUPMNGR_ADDR,GROUPMNGR_TCP_PORT))
-  clientSock.connect((GROUPMNGR_ADDR,GROUPMNGR_TCP_PORT))
   ipAddr = get_public_ip()
-  req = {"op":"register", "ipaddr":ipAddr, "port":PEER_UDP_PORT}
-  msg = pickle.dumps(req)
-  print ('Registering with group manager: ', req)
-  clientSock.send(msg)
-  clientSock.close()
+  with rpyc.connect(GROUPMNGR_ADDR, GROUPMNGR_TCP_PORT) as conn:
+    conn.root.register(ipAddr, PEER_UDP_PORT)
 
 def getListOfPeers():
-  clientSock = socket(AF_INET, SOCK_STREAM)
   print ('Connecting to group manager: ', (GROUPMNGR_ADDR,GROUPMNGR_TCP_PORT))
-  clientSock.connect((GROUPMNGR_ADDR,GROUPMNGR_TCP_PORT))
-  req = {"op":"list"}
-  msg = pickle.dumps(req)
-  print ('Getting list of peers from group manager: ', req)
-  clientSock.send(msg)
-  msg = clientSock.recv(2048)
-  PEERS = pickle.loads(msg)
-  print ('Got list of peers: ', PEERS)
-  clientSock.close()
-  return PEERS
+  with rpyc.connect(GROUPMNGR_ADDR,GROUPMNGR_TCP_PORT) as conn:
+    print ('Getting list of peers from group manager: ', GROUPMNGR_ADDR)
+    PEERS = conn.root.list()
+    print ('Got list of peers: ', PEERS)
+    return PEERS
 
 class MsgHandler(threading.Thread):
   def __init__(self, sock):
@@ -107,35 +102,21 @@ class MsgHandler(threading.Thread):
     logFile.writelines(str(logList))
     logFile.close()
     
-    # Send the list of messages to the server (using a TCP socket) for comparison
+    # Send the list of messages to the server for comparison
     print('Sending the list of messages to the server for comparison...')
-    clientSock = socket(AF_INET, SOCK_STREAM)
-    clientSock.connect((SERVER_ADDR, SERVER_PORT))
-    msgPack = pickle.dumps(logList)
-    clientSock.send(msgPack)
-    clientSock.close()
+    with rpyc.connect(SERVER_ADDR, SERVER_PORT) as conn:
+      conn.root.submit_log(tuple(logList))
     
     # Reset the handshake counter
     handShakeCount = 0
 
     exit(0)
 
-# Function to wait for start signal from comparison server:
-def waitToStart():
-  (conn, addr) = serverSock.accept()
-  msgPack = conn.recv(1024)
-  msg = pickle.loads(msgPack)
-  myself = msg[0]
-  nMsgs = msg[1]
-  conn.send(pickle.dumps('Peer process '+str(myself)+' started.'))
-  conn.close()
-  return (myself,nMsgs)
-
 # From here, code is executed when program starts:
 registerWithGroupManager()
 while 1:
   print('Waiting for signal to start...')
-  (myself, nMsgs) = waitToStart()
+  (myself, nMsgs) = PeerCommunicatorService.start_queue.get()
   print('I am up, and my ID is: ', str(myself))
 
   if nMsgs == 0:
