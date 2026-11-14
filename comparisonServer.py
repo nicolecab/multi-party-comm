@@ -69,9 +69,12 @@ def waitForLogsAndCompare(N_MSGS):
 	# Compare the lists of messages
 	with logs_lock:
 		msgs = list(logs)
-	for j in range(0,N_MSGS-1):
+	for i in range(N):
+		if len(msgs[i]) != N * N_MSGS:
+			print('Log ' + str(i) + ' has ' + str(len(msgs[i])) + ' messages, expected ' + str(N * N_MSGS))
+	for j in range(N*N_MSGS):
 		firstMsg = msgs[0][j]
-		for i in range(1,N-1):
+		for i in range(1,N):
 			if firstMsg != msgs[i][j]:
 				unordered = unordered + 1
 				break
