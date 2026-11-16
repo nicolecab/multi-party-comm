@@ -114,10 +114,11 @@ class MsgHandler(threading.Thread):
           missing = [s for s in range(nextSeq[sender], seq) if s not in received[sender]]
           print('Gap from', sender, '- asking for', missing)
           sendNack(sender, missing)
+        print('Received message ' + str(seq) + ' from process ' + str(sender))
         while nextSeq[sender] in received[sender]:
+          logList.append((sender, nextSeq[sender]))
+          print('Delivered message ' + str(nextSeq[sender]) + ' from process ' + str(sender))
           nextSeq[sender] += 1
-        print('Message ' + str(seq) + ' from process ' + str(sender))
-        logList.append(msg)
         if not complete and all(len(r) == self.nMsgs for r in received):
           complete = True
           self.submitLog(logList)

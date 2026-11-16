@@ -72,6 +72,14 @@ def waitForLogsAndCompare(N_MSGS):
 	for i in range(N):
 		if len(msgs[i]) != N * N_MSGS:
 			print('Log ' + str(i) + ' has ' + str(len(msgs[i])) + ' messages, expected ' + str(N * N_MSGS))
+	fifoViolations = 0
+	for k in range(N):
+		lastSeq = [-1]*N
+		for (sender, seq) in msgs[k]:
+			if seq != lastSeq[sender] + 1:
+				fifoViolations += 1
+			lastSeq[sender] = seq
+	print('Found ' + str(fifoViolations) + ' FIFO violations')
 	for j in range(N*N_MSGS):
 		firstMsg = msgs[0][j]
 		for i in range(1,N):
