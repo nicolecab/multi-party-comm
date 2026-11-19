@@ -21,6 +21,16 @@ As each peer knows how many messages it must receive from each of the others, no
 
 Finally, receiving a message is distinguished from delivering it (i.e., appending it to the list of messages). A message is only delivered after all the previous messages from the same sender have been delivered; messages that arrive ahead of time are held back until the missing ones arrive. This ensures FIFO ordering: each peer delivers the messages from a given sender in the order in which they were sent. Note, however, that messages from different senders may still be delivered in different orders by different peers.
 
+## Socket and RPC Comparison
+
+Sockets provide communication mechanisms between processes over a network. When using sockets directly, programmers must explicitly handle communication details, such as configuring endpoints, sending and receiving data, and managing data serialization when necessary.
+
+RPC provides a higher-level abstraction that allows a process to invoke procedures offered by another process as if they were local procedure calls. The underlying communication is still performed over the network, but the RPC library handles several details that would otherwise need to be implemented explicitly, such as message exchange and data serialization.
+
+Therefore, the main advantage of RPC is access transparency: it reduces the need for the programmer to deal directly with the communication mechanisms and provides a simpler interface for accessing remote operations. It can also reduce the amount of communication-related code and provide built-in serialization support. However, this abstraction introduces additional processing overhead and may result in higher execution times and communication overhead compared to direct socket operations. 
+
+In the socket-based implementation, client-server interactions are handled explicitly: the programmer creates TCP sockets, establishes connections, serializes requests and responses with pickle, sends and receives data, and closes connections manually. In the RPC implementation, these steps are replaced by calls to remote methods, such as conn.root.register(), conn.root.list(), conn.root.start() and conn.root.submit_log(), while RPyC handles the underlying communication and data serialization. This makes the RPC code closer to ordinary local procedure calls, reducing the programmer's need to manage network communication details and providing greater access transparency. However, the network communication remains present and depends on the RPC framework, whereas the socket implementation exposes these mechanisms directly and gives the programmer more control over them.
+
 ## Setup
 - Create one instance (virtual machine in the cloud) to run the two servers, and a number of instances (e.g., 6 in one cloud region, 2 on another) to run the peers.
 - On all the instances, install the Python dependencies: `pip install rpyc requests`
