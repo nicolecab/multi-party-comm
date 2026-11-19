@@ -23,13 +23,27 @@ Finally, receiving a message is distinguished from delivering it (i.e., appendin
 
 ## Socket and RPC Comparison
 
-Sockets provide communication mechanisms between processes over a network. When using sockets directly, programmers must explicitly handle communication details, such as configuring endpoints, sending and receiving data, and managing data serialization when necessary.
+Sockets provide direct communication between processes over a network, requiring programmers to manage connection handling, message exchange, and data serialization. RPC (Remote Procedure Call) offers a higher-level abstraction, allowing a process to invoke procedures offered by another process as if they were local calls, while the RPC library handles the underlying communication.
 
-RPC provides a higher-level abstraction that allows a process to invoke procedures offered by another process as if they were local procedure calls. The underlying communication is still performed over the network, but the RPC library handles several details that would otherwise need to be implemented explicitly, such as message exchange and data serialization.
+Therefore, RPC provides access transparency by allowing remote operations to be invoked through a simpler interface, reducing the need to manage communication details explicitly. However, this abstraction introduces additional processing overhead and may result in higher execution times compared to direct socket operations.
 
-Therefore, the main advantage of RPC is access transparency: it reduces the need for the programmer to deal directly with the communication mechanisms and provides a simpler interface for accessing remote operations. It can also reduce the amount of communication-related code and provide built-in serialization support. However, this abstraction introduces additional processing overhead and may result in higher execution times and communication overhead compared to direct socket operations. 
+In the socket-based implementation, client-server interactions are handled explicitly: the programmer creates TCP sockets, establishes connections, serializes requests and responses with pickle, sends and receives data, and closes connections manually. In the RPC implementation, these steps are replaced by calls to remote methods, such as ```conn.root.register()```, ```conn.root.list()```, ```conn.root.start()``` and ```conn.root.submit_log()```, while RPyC handles the underlying communication and data serialization. Although the RPC interface simplifies these interactions, network communication remains necessary and depends on the RPC framework, whereas the socket implementation exposes these mechanisms directly and gives the programmer more control over them.
 
-In the socket-based implementation, client-server interactions are handled explicitly: the programmer creates TCP sockets, establishes connections, serializes requests and responses with pickle, sends and receives data, and closes connections manually. In the RPC implementation, these steps are replaced by calls to remote methods, such as conn.root.register(), conn.root.list(), conn.root.start() and conn.root.submit_log(), while RPyC handles the underlying communication and data serialization. This makes the RPC code closer to ordinary local procedure calls, reducing the programmer's need to manage network communication details and providing greater access transparency. However, the network communication remains present and depends on the RPC framework, whereas the socket implementation exposes these mechanisms directly and gives the programmer more control over them.
+In order to better compare these implementations, AWS instances were run in different geographical setups. Three measurements were collected over five executions on the server side to evaluate the communication overhead of each implementation. Two configurations were tested: all six peers running in Virginia, and four peers in Virginia with two in Oregon. 
+
+The following metrics were recorded:
+- *Peer Discovery*: time taken by the comparison server to obtain the peer list.
+- *Peer Start*: time taken to send the start signal to each peer.
+- *Total Experiment*: total execution time, including the UDP message exchange and the wait for peers to transmit their logs.
+
+| Configuration	| Peer Discovery (ms) |	Peer Start – Virginia (ms) | Peer Start – Oregon (ms) | Total Experiment (ms) |
+| --- | --- | --- | --- | --- |
+|Sockets – 6 Virginia|0.694 ± 0.102|0.865 ± 0.034|—|1244.214 ± 47.638|
+|RPC – 6 Virginia|5.284 ± 1.166|4.228 ± 0.200|—|1291.229 ± 79.656|
+|Sockets – 4 Virginia + 2 Oregon|0.659 ± 0.066|0.918 ± 0.060|124.772 ± 3.777|1760.151 ± 75.321|
+|RPC – 4 Virginia + 2 Oregon|5.256 ± 0.739|4.372 ± 0.153|430.423 ± 12.477|2754.922 ± 62.152|
+
+The results show that RPC introduced higher execution times across all measured metrics, with particularly significant differences in the geographically distributed configuration. While the total execution time was only slightly higher for RPC when all peers were in Virginia (1291 ms vs. 1244 ms), the difference increased considerably when peers were distributed between Virginia and Oregon (2755 ms vs. 1760 ms). This suggests that the overhead introduced by RPC becomes more significant in geographically distributed scenarios.
 
 ## Setup
 - Create one instance (virtual machine in the cloud) to run the two servers, and a number of instances (e.g., 6 in one cloud region, 2 on another) to run the peers.
