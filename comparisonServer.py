@@ -10,6 +10,16 @@ serverSock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 serverSock.bind(('0.0.0.0', SERVER_PORT))
 serverSock.listen(6)
 
+def recvAll(conn):
+	# Reads until the peer closes the connection (logs can be larger than one recv)
+	chunks = []
+	while True:
+		data = conn.recv(65536)
+		if not data:
+			break
+		chunks.append(data)
+	return b''.join(chunks)
+
 def mainLoop():
 	cont = 1
 	while 1:
@@ -53,8 +63,13 @@ def startPeers(peerList,nMsgs):
 		msg = (peerNumber,nMsgs)
 		msgPack = pickle.dumps(msg)
 		clientSock.send(msgPack)
-		msgPack = clientSock.recv(512)
-		print(pickle.loads(msgPack))
+		try:
+			msgPack = clientSock.recv(512)
+			print(pickle.loads(msgPack))
+		except (EOFError, ConnectionError):
+			if nMsgs != 0:
+				print('Peer ' + peer + ' failed')
+				raise
 		clientSock.close()
 		peerNumber = peerNumber + 1
 
@@ -66,7 +81,7 @@ def waitForLogsAndCompare(N_MSGS):
 	# Receive the logs of messages from the peer processes
 	while numPeers < N:
 		(conn, addr) = serverSock.accept()
-		msgPack = conn.recv(32768)
+		msgPack = recvAll(conn)
 		print ('Received log from peer')
 		conn.close()
 		msgs.append(pickle.loads(msgPack))
@@ -74,10 +89,27 @@ def waitForLogsAndCompare(N_MSGS):
 
 	unordered = 0
 
-	# Compare the lists of messages
-	for j in range(0,N_MSGS-1):
+	# Check that every log has the expected number of messages
+	expected = N * N_MSGS
+	for i in range(N):
+		if len(msgs[i]) != expected:
+			print('Log ' + str(i) + ' has ' + str(len(msgs[i])) + ' messages, expected ' + str(expected))
+
+	# Check FIFO order per sender in each log
+	fifoViolations = 0
+	for k in range(N):
+		lastSeq = [-1]*N
+		for (sender, seq) in msgs[k]:
+			if seq != lastSeq[sender] + 1:
+				fifoViolations += 1
+			lastSeq[sender] = seq
+	print('Found ' + str(fifoViolations) + ' FIFO violations')
+
+	# Compare the lists of messages (total order across peers)
+	minLen = min(len(m) for m in msgs)
+	for j in range(minLen):
 		firstMsg = msgs[0][j]
-		for i in range(1,N-1):
+		for i in range(1,N):
 			if firstMsg != msgs[i][j]:
 				unordered = unordered + 1
 				break
