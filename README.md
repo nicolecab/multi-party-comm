@@ -21,6 +21,30 @@ As each peer knows how many messages it must receive from each of the others, no
 
 Finally, receiving a message is distinguished from delivering it (i.e., appending it to the list of messages). A message is only delivered after all the previous messages from the same sender have been delivered; messages that arrive ahead of time are held back until the missing ones arrive. This ensures FIFO ordering: each peer delivers the messages from a given sender in the order in which they were sent. Note, however, that messages from different senders may still be delivered in different orders by different peers.
 
+## Testing loss treatment and FIFO ordering
+
+In order to test the solution, one of the peers was set up with failure simulation that drops and/or delays UDP messages on the sending side. This was tested on both the original code and the code with loss handling and FIFO ordering.
+
+### Test setup
+- 3 peers on AWS instances, peers 0 and 1 in the same region as the server and peer 2 in another one, plus 1 instance running *GroupMngr.py* and *comparisonServer.py*.
+- 20 messages sent by each peer (60 messages delivered per peer in total).
+- 1 peer simulated 10% UDP package loss with:
+
+```
+sudo iptables -I INPUT -p udp --dport 6789 \
+  -m statistic --mode random --probability 0.1 -j DROP
+```
+
+### Results
+
+| Test | Outcome | FIFO violations | Unordered rounds |
+| --- | --- | --- | --- |
+| 1 – With treatment, with simulated failures | Completed; all 3 logs received | **0** | 47 |
+| 2 – Original code, with simulated failures | **Did not complete (blocked)** | — | — |
+| 3 – Original code, without simulated failures | Completed; all 3 logs received | not reported | 13 |
+
+With simulated message loss and delay, the original code deadlocks, because a single lost handshake leaves a peer waiting forever and the experiment never finishes. The altered code completes the same scenario with 0 FIFO violations, and every peer delivers all 60 messages. However, both versions still show unordered rounds across peers (47 with the fix under simulated failures, 13 for the original without them), since FIFO only orders messages from the same sender and does not make all replicas see the same global order.
+
 ## Socket and RPC Comparison
 
 Sockets provide direct communication between processes over a network, requiring programmers to manage connection handling, message exchange, and data serialization. RPC (Remote Procedure Call) offers a higher-level abstraction, allowing a process to invoke procedures offered by another process as if they were local calls, while the RPC library handles the underlying communication.
